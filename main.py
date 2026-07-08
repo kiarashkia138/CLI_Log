@@ -85,7 +85,7 @@ def process_log_file(log_file_path, output_file_path):
     return stats
 
 
-def print_report(stats, top_n=None):
+def print_report(stats, top_n=10):
     print("=" * 70)
     print("LOG REPORT")
     print("=" * 70)
@@ -99,6 +99,15 @@ def print_report(stats, top_n=None):
     print(f"Total requests   : {stats.valid_requests:,}")
     print(f"Unique IPs       : {len(stats.unique_ips):,}")
     print(f"Error rate (4xx/5xx): {(stats.error_count / stats.valid_requests * 100):.2f}%")
+
+    print(f"\nTop {top_n} endpoints by traffic:")
+    top_endpoints = stats.endpoint_counter.most_common(top_n)
+    if not top_endpoints:
+        print("  (no data)")
+    else:
+        max_len = max(len(path) for path, _ in top_endpoints)
+        for path, count in top_endpoints:
+            print(f"  {path:<{max_len}}  {count:>8,} requests")
 
 
     print("\n-- Status Code Breakdown --")
@@ -116,14 +125,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("log_file", help="Path to the log file")
     parser.add_argument("--output", type=str, default="result.txt")
-    parser.add_argument("--top", type=int)
+    parser.add_argument("--top", type=int, default=10)
     args = parser.parse_args()
 
     log_file_path = args.log_file
     output_file_path = args.output
     top_lines = args.top
 
-    if top_lines is None:
-        stats = process_log_file(log_file_path, output_file_path)
+    stats = process_log_file(log_file_path, output_file_path)
 
     print_report(stats, top_n=top_lines)
