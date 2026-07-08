@@ -1,4 +1,5 @@
 import re
+import gzip
 import argparse
 from datetime import datetime
 from typing import Counter
@@ -29,7 +30,41 @@ class LogStats:
         self.endpoint_counter = Counter()
         self.hourly_counter = Counter()      
         self.status_counter = Counter()
-        self.error_count = 0     
+        self.error_count = 0   
+
+        self.auth_keywords = ["login"]
+        self.auth_401_by_ip_path = Counter()
+
+    def _is_auth_path(self, path):
+        p = path.lower()
+        return any(kw in p for kw in self.auth_keywords)
+
+    def suspicious_login_ips(self, threshold=10, top_n=10):
+        """
+        Aggregate 401-on-auth-path counts per IP (across all matching paths)
+        and return those at/above `threshold`, sorted descending, along with
+        a per-path breakdown for each offending IP.
+        """
+        totals = Counter()
+        breakdown = {}  # ip -> Counter(path -> count)
+        for (ip, path), count in self.auth_401_by_ip_path.items():
+            totals[ip] += count
+            breakdown.setdefault(ip, Counter())[path] += count
+
+        offenders = [
+            (ip, total, breakdown[ip])
+            for ip, total in totals.items()
+            if total >= threshold
+        ]
+        offenders.sort(key=lambda x: x[1], reverse=True)
+        return offenders[:top_n] 
+
+
+def open_log_file(filepath):
+    if filepath.endswith(".gz"):
+        return gzip.open(filepath, "rt", encoding="utf-8", errors="replace")
+    
+    return open(filepath, "r", encoding="utf-8", errors="replace")
 
 
 def process_line(line):
@@ -60,7 +95,7 @@ def process_log_file(log_file_path):
 
     stats = LogStats()
 
-    with open(log_file_path, "r", encoding="utf-8") as f:
+    with open_log_file(log_file_path) as f:
         for line in f:
             stats.total_lines += 1
             data = process_line(line)
@@ -82,6 +117,9 @@ def process_log_file(log_file_path):
             if data["status"].startswith("4") or data["status"].startswith("5"):
                 stats.error_count += 1
 
+            if data["status"] == 401 and stats._is_auth_path(data["path"]):
+                stats.auth_401_by_ip_path[(data["ip"], data["path"])] += 1
+
     return stats
 
 
@@ -92,7 +130,7 @@ def render_histogram_bar(count, max_count, width=50):
     return "#" * filled
 
 
-def print_report(stats, top_n=10):
+def print_report(stats, top_n=10, login_thr=10):
     print("=" * 70)
     print("LOG REPORT")
     print("=" * 70)
@@ -135,6 +173,19 @@ def print_report(stats, top_n=10):
             print(f"  {hour_bucket}  {count:>7,}  {bar}")
 
 
+    print("\n-- Suspicious Login Activity --")
+    print(f"(IPs with >= {login_thr} failed (401) attempts on auth-like "
+          f"endpoints: {', '.join(stats.auth_keywords)})")
+    offenders = stats.suspicious_login_ips(threshold=login_thr)
+    if not offenders:
+        print("  No suspicious login activity detected.")
+    else:
+        for ip, total, breakdown in offenders:
+            print(f"  {ip:<20} {total:>6,} failed logins")
+            for path, count in breakdown.most_common():
+                print(f"      -> {path:<30} {count:>6,}")
+
+
     print("\n" + "=" * 70)
 
 
@@ -143,10 +194,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("log_file", help="Path to the log file")
     parser.add_argument("--top", type=int, default=10)
+    parser.add_argument("--login-threshold", type=int, default=10)
     args = parser.parse_args()
 
     log_file_path = args.log_file
     top_lines = args.top
+    login_thr = args.login_threshold
+
+
+    if not log_file_path.endswith((".log", ".gz")):
+        raise argparse.ArgumentTypeError("File must end with '.log' or '.gz'")
+
 
     stats = process_log_file(log_file_path)
-    print_report(stats, top_n=top_lines)
+    print_report(stats, top_n=top_lines, login_thr=login_thr)
