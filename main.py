@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Counter
 
 
+
+
 LOG_PATTERN = re.compile(
     r'^(?P<ip>\S+)\s+'                                                           # client IP
     r'\S+\s+\S+\s+'                                                              # ident, authuser (usually "-")
@@ -17,7 +19,6 @@ LOG_PATTERN = re.compile(
 
 TIME_FORMAT = "%d/%b/%Y:%H:%M:%S %z"
 
-
 class LogStats:
     def __init__(self):
         self.total_lines = 0
@@ -29,7 +30,6 @@ class LogStats:
         self.hourly_counter = Counter()      
         self.status_counter = Counter()
         self.error_count = 0     
-
 
 
 def process_line(line):
@@ -56,7 +56,7 @@ def process_line(line):
     return data
 
 
-def process_log_file(log_file_path, output_file_path):
+def process_log_file(log_file_path):
 
     stats = LogStats()
 
@@ -83,6 +83,13 @@ def process_log_file(log_file_path, output_file_path):
                 stats.error_count += 1
 
     return stats
+
+
+def render_histogram_bar(count, max_count, width=50):
+    if max_count == 0:
+        return ""
+    filled = int((count / max_count) * width)
+    return "#" * filled
 
 
 def print_report(stats, top_n=10):
@@ -117,21 +124,29 @@ def print_report(stats, top_n=10):
         print(f"  {status}: {count:>8,}  ({pct:5.2f}%)")
 
 
+    print("\n-- Hourly Traffic Distribution --")
+    hourly = sorted(stats.hourly_counter.items())
+    if not hourly:
+        print("  (no data)")
+    else:
+        max_count = max(c for _, c in hourly)
+        for hour_bucket, count in hourly:
+            bar = render_histogram_bar(count, max_count)
+            print(f"  {hour_bucket}  {count:>7,}  {bar}")
+
 
     print("\n" + "=" * 70)
+
 
 
 if __name__ == "__main__":  
     parser = argparse.ArgumentParser()
     parser.add_argument("log_file", help="Path to the log file")
-    parser.add_argument("--output", type=str, default="result.txt")
     parser.add_argument("--top", type=int, default=10)
     args = parser.parse_args()
 
     log_file_path = args.log_file
-    output_file_path = args.output
     top_lines = args.top
 
-    stats = process_log_file(log_file_path, output_file_path)
-
+    stats = process_log_file(log_file_path)
     print_report(stats, top_n=top_lines)
