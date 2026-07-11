@@ -7,6 +7,8 @@ A small CLI tool that reads a web server access log (Combined Log Format) and pr
 
 ```bash
 python main.py access.log
+```
+```bash
 python main.py access.log.gz
 ```
 
@@ -53,7 +55,7 @@ Any line that doesn't match this format — truncated, garbled, missing fields, 
 
 **Streaming** — the file is read with `for line in f:` inside `process_log_file()`, so only one line is ever held in memory at a time. The running totals are kept in a handful of `collections.Counter` objects and a `set` for unique IPs.
 
-**Compressed files** — `open_log_file()` checks whether the path ends in `.gz` and opens it with `gzip.open(path, "rt", ...)` instead of the normal `open()`. Everything downstream reads it the same way either way, since both return a text-mode file object.
+**Compressed files** — `open_log_file()` checks whether the path ends in `.gz` and opens it with `gzip.open(path, "rt", ...)` instead of the normal `open()`. Everything downstream reads it the same way, since both return a text-mode file object.
 
 **Suspicious login detection** — every 401 response on a path containing the word `login` gets tallied per `(ip, path)` in a `Counter`. After the file is processed, `suspicious_login_ips()` sums those counts per IP and returns any IP at or above `--login-threshold` failed attempts, sorted by count.
 
@@ -72,7 +74,7 @@ Some fields in the log, like the user-agent contain spaces inside them:
 ```
     "Mozilla/5.0 (X11; Linux x86_64)"
 ```
-My first approach was splitting each line on whitespace to pull out the fields. That broke as soon as it hit a user-agent with spaces in it
+My first approach was splitting each line on whitespace to pull out the fields. That broke as soon as it hit a user-agent with spaces in it.
 
 ### Fix
 instead of splitting the fields, I built one regex (LOG_PATTERN) that validates the entire line's structure in a single match. If a line doesn't match — wrong number of fields, malformed quotes, etc — match just comes back None and I skip it.
